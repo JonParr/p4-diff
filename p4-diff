@@ -1,0 +1,179 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import subprocess
+import argparse
+import tempfile
+
+Verbose = False
+
+def userHasPerforce():
+    p = subprocess.Popen(['which','p4'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    p.communicate()
+    if p.returncode == 0:
+        return True
+    return False
+
+def runCommand(cmd):
+    if Verbose:
+        print 'Executing: {}'.format(cmd)
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (out,err) = p.communicate()
+    if len(err) > 0:
+        print 'error: {}'.format(err)
+        exit(1)
+    return (out,err)
+
+def convertDepotPathToLocal(depot_path):
+    command = ['p4','where',depot_path]
+    (out,_) = runCommand(command)
+    out = out.split(' ')
+    # Format is <depot> <something> <local>
+    # on a single line, so just grab the third item.
+    return out[2].strip()
+
+def generateFileDiff(new,newfile):
+    if new:
+        command = ['diff','-u','/dev/null',newfile]
+    else:
+        command = ['diff','-u',newfile,'/dev/null']
+    (diff,_) = runCommand(command)
+    print diff
+    return diff
+
+def generateAddedFileDiffFromShelved(changelist,depot_path):
+    command = ['p4','print','-q','{}@={}'.format(depot_path,changelist)]
+    (content,_) = runCommand(command)
+    tmp = tempfile.NamedTemporaryFile()
+    tmpfile = open(tmp.name,'w')
+    tmpfile.write(content)
+    tmpfile.close()
+    command = ['diff','-u','/dev/null',tmp.name]
+    (diff,_) = runCommand(command)
+    lines = diff.split('\n')
+    # replace tmp file name with the depot one for clarity
+    lines[1] = lines[1].replace(tmp.name,depot_path)
+    print '\n'.join(lines)
+
+def generateDeletedFileDiffFromShelved(changelist,depot_path,file_revision):
+    command = ['p4','print','-q','{}#{}'.format(depot_path,file_revision)]
+    (content,_) = runCommand(command)
+    tmp = tempfile.NamedTemporaryFile()
+    tmpfile = open(tmp.name,'w')
+    tmpfile.write(content)
+    tmpfile.close()
+    command = ['diff','-u',tmp.name,'/dev/null']
+    (diff,_) = runCommand(command)
+    lines = diff.split('\n')
+    # replace tmp file name with the depot one for clarity
+    lines[0] = lines[0].replace(tmp.name,depot_path)
+    print '\n'.join(lines)
+
+def generateEditFileDiff(depot_path):
+    command = ['p4','diff','-du',depot_path]
+    (diff,_) = runCommand(command)
+    if len(diff.split('\n')) != 3:
+        print diff
+        return diff
+    if Verbose:
+        print 'Empty diff detected for {}'.format(depot_path)
+    return ''
+
+def generateEditFileDiffFromShelved(changelist,depot_path):
+    command = ['p4','diff2','-u',depot_path,'{}@={}'.format(depot_path,changelist)]
+    (diff,_) = runCommand(command)
+    if len(diff.split('\n')) != 1:
+        print diff
+        return diff
+    if Verbose:
+        print 'Empty diff detected for {}'.format(depot_path)
+    return ''
+
+def getOpenedFiles(changelist):
+    opened_files = []
+    command = ['p4','opened','-s','-c',changelist]
+    (out,_) = runCommand(command)
+    for l in out.split('\n'):
+        if l == "":
+            continue
+        fields = l.split(' ')
+        file_name = fields[0].split('#')[0]
+        if len(fields[0].split('#')) > 1:
+            file_revision = fields[0].split('#')[1]
+        else:
+            file_revision = None
+        assert(fields[1] == '-')
+        operation = fields[2]
+        assert(operation in ['add','edit'])
+        opened_files.append((operation,file_name,file_revision))
+    return opened_files
+
+def getShelvedFiles(changelist):
+    shelved_files = []
+    command = ['p4','describe','-S','-s',changelist]
+    (out,_) = runCommand(command)
+    for l in out.split('\n'):
+        if not l.startswith('...'):
+            continue
+        fields = l.split(' ')
+        file_name = fields[1].split('#')[0]
+        file_revision = fields[1].split('#')[1]
+        assert(fields[0] == '...')
+        operation = fields[2]
+        assert(operation in ['add','edit','delete'])
+        shelved_files.append((operation,file_name,file_revision))
+    return shelved_files
+    
+def main():
+    p = argparse.ArgumentParser(description='Generate a diff from Perforce given the changelist number. If you wish to generate the diff from a shelved changelist, please specify the --shelved/-s option.',
+                                prog='p4-diff')
+
+    p.add_argument('--changelist','-c',metavar='CHANGELIST',help='Perforce changelist number, e.g. 123456',required=True)
+    p.add_argument('--shelved','-s',action='store_true',help='Changelist is shelved')
+    p.add_argument('--verbose','-v',action='store_true',help='Enable verbose output useful such as executing Perforce commands. Note, this will corrupt the diff output')
+
+    options = p.parse_args()
+
+    if not userHasPerforce():
+        print 'error: could not find perforce executable.'
+        exit(1)
+    
+    changelist = options.changelist
+
+    global Verbose
+    Verbose = options.verbose
+        
+    if options.shelved:
+        file_list = getShelvedFiles(changelist)
+    else:
+        file_list = getOpenedFiles(changelist)
+
+    if not len(file_list):
+        print 'No files to generate diff from.'
+    else:
+        for (op,f,file_revision) in file_list:
+            local_f = convertDepotPathToLocal(f)
+            if Verbose:
+                print '{} was open for {} [{}]'.format(local_f,op,f)
+            if op == 'add':
+                if options.shelved:
+                    generateAddedFileDiffFromShelved(changelist,f)
+                else:
+                    generateFileDiff(True,local_f)
+            elif op == 'edit':
+                if options.shelved:
+                    generateEditFileDiffFromShelved(changelist,f)
+                else:
+                    generateEditFileDiff(f)
+            elif op == 'delete':
+                if options.shelved:
+                    generateDeletedFileDiffFromShelved(changelist,f,file_revision)
+                else:
+                    generateFileDiff(False,local_f)
+            else:
+                print ('Unhandled operation {}'.format(op))
+                assert(False)
+
+if __name__ == '__main__':
+    main()

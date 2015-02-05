@@ -7,6 +7,13 @@ import argparse
 import tempfile
 
 Verbose = False
+Ticket = None
+
+def getP4Command():
+    cmd = ['p4']
+    if Ticket:
+        cmd += ['-P',Ticket]
+    return cmd
 
 def userHasPerforce():
     p = subprocess.Popen(['which','p4'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -26,7 +33,7 @@ def runCommand(cmd):
     return (out,err)
 
 def convertDepotPathToLocal(depot_path):
-    command = ['p4','where',depot_path]
+    command = getP4Command() + ['where',depot_path]
     (out,_) = runCommand(command)
     out = out.split(' ')
     # Format is <depot> <something> <local>
@@ -43,7 +50,7 @@ def generateFileDiff(new,newfile):
     return diff
 
 def generateAddedFileDiffFromShelved(changelist,depot_path):
-    command = ['p4','print','-q','{}@={}'.format(depot_path,changelist)]
+    command = getP4Command() + ['print','-q','{}@={}'.format(depot_path,changelist)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
@@ -57,7 +64,7 @@ def generateAddedFileDiffFromShelved(changelist,depot_path):
     print '\n'.join(lines)
 
 def generateDeletedFileDiffFromShelved(changelist,depot_path,file_revision):
-    command = ['p4','print','-q','{}#{}'.format(depot_path,file_revision)]
+    command = getP4Command() + ['print','-q','{}#{}'.format(depot_path,file_revision)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
@@ -71,7 +78,7 @@ def generateDeletedFileDiffFromShelved(changelist,depot_path,file_revision):
     print '\n'.join(lines)
 
 def generateEditFileDiff(depot_path):
-    command = ['p4','diff','-du',depot_path]
+    command = getP4Command() + ['diff','-du',depot_path]
     (diff,_) = runCommand(command)
     if len(diff.split('\n')) != 3:
         print diff
@@ -81,7 +88,7 @@ def generateEditFileDiff(depot_path):
     return ''
 
 def generateEditFileDiffFromShelved(changelist,depot_path):
-    command = ['p4','diff2','-u',depot_path,'{}@={}'.format(depot_path,changelist)]
+    command = getP4Command() + ['diff2','-u',depot_path,'{}@={}'.format(depot_path,changelist)]
     (diff,_) = runCommand(command)
     if len(diff.split('\n')) != 1:
         print diff
@@ -92,7 +99,7 @@ def generateEditFileDiffFromShelved(changelist,depot_path):
 
 def getOpenedFiles(changelist):
     opened_files = []
-    command = ['p4','opened','-s','-c',changelist]
+    command = getP4Command() + ['opened','-s','-c',changelist]
     (out,_) = runCommand(command)
     for l in out.split('\n'):
         if l == "":
@@ -111,7 +118,7 @@ def getOpenedFiles(changelist):
 
 def getShelvedFiles(changelist):
     shelved_files = []
-    command = ['p4','describe','-S','-s',changelist]
+    command = getP4Command() + ['describe','-S','-s',changelist]
     (out,_) = runCommand(command)
     for l in out.split('\n'):
         if not l.startswith('...'):
@@ -131,6 +138,7 @@ def main():
 
     p.add_argument('--changelist','-c',metavar='CHANGELIST',help='Perforce changelist number, e.g. 123456',required=True)
     p.add_argument('--shelved','-s',action='store_true',help='Changelist is shelved')
+    p.add_argument('--ticket','-t',metavar='P4TICKET',help='If required, use a P4TICKET to authenticate.')
     p.add_argument('--verbose','-v',action='store_true',help='Enable verbose output useful such as executing Perforce commands. Note, this will corrupt the diff output')
 
     options = p.parse_args()
@@ -143,6 +151,8 @@ def main():
 
     global Verbose
     Verbose = options.verbose
+    global Ticket
+    Ticket = options.ticket
         
     if options.shelved:
         file_list = getShelvedFiles(changelist)

@@ -87,8 +87,8 @@ def generateEditFileDiff(depot_path):
         print 'Empty diff detected for {}'.format(depot_path)
     return ''
 
-def generateEditFileDiffFromShelved(changelist,depot_path):
-    command = getP4Command() + ['diff2','-u',depot_path,'{}@={}'.format(depot_path,changelist)]
+def generateEditFileDiffFromShelved(base_revision, changelist,depot_path):
+    command = getP4Command() + ['diff2','-u','{}#{}'.format(depot_path,base_revision),'{}@={}'.format(depot_path,changelist)]
     (diff,_) = runCommand(command)
     if len(diff.split('\n')) != 1:
         print diff
@@ -173,7 +173,7 @@ def main():
                     generateFileDiff(True,local_f)
             elif op == 'edit':
                 if options.shelved:
-                    generateEditFileDiffFromShelved(changelist,f)
+                    generateEditFileDiffFromShelved(file_revision,changelist,f)
                 else:
                     generateEditFileDiff(f)
             elif op == 'delete':

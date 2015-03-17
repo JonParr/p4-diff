@@ -123,12 +123,11 @@ def getShelvedFiles(changelist):
     for l in out.split('\n'):
         if not l.startswith('...'):
             continue
-        fields = l.split(' ')
-        file_name = fields[1].split('#')[0]
-        file_revision = fields[1].split('#')[1]
-        assert(fields[0] == '...')
-        operation = fields[2]
-        assert(operation in ['add','edit','delete'])
+        space_split = l.split(' ')
+        assert(space_split[0] == '...')
+        file_name = ' '.join((space_split[1:])[:-1]).split('#')[0]
+        file_revision = space_split[-2].split('#')[1]
+        operation = space_split[-1]
         shelved_files.append((operation,file_name,file_revision))
     return shelved_files
     

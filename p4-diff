@@ -128,6 +128,7 @@ def getShelvedFiles(changelist):
         file_name = ' '.join((space_split[1:])[:-1]).split('#')[0]
         file_revision = space_split[-2].split('#')[1]
         operation = space_split[-1]
+        assert(operation in ['add','branch','move/delete','move/add','edit','delete','integrate'])
         shelved_files.append((operation,file_name,file_revision))
     return shelved_files
     
@@ -165,17 +166,17 @@ def main():
             local_f = convertDepotPathToLocal(f)
             if Verbose:
                 print '{} was open for {} [{}]'.format(local_f,op,f)
-            if op == 'add':
+            if op == 'add' or op == 'branch' or op == 'move/add':
                 if options.shelved:
                     generateAddedFileDiffFromShelved(changelist,f)
                 else:
                     generateFileDiff(True,local_f)
-            elif op == 'edit':
+            elif op == 'edit' or op == 'integrate':
                 if options.shelved:
                     generateEditFileDiffFromShelved(file_revision,changelist,f)
                 else:
                     generateEditFileDiff(f)
-            elif op == 'delete':
+            elif op == 'delete' or op == 'move/delete':
                 if options.shelved:
                     generateDeletedFileDiffFromShelved(changelist,f,file_revision)
                 else:

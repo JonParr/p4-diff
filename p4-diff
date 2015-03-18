@@ -50,11 +50,19 @@ def generateFileDiff(new,newfile):
     return diff
 
 def generateAddedFileDiffFromShelved(changelist,depot_path):
+    # p4 print adds an extra newline only for symlinks, so we have to check the
+    # file type and remove it in this case.
+    command = getP4Command() + ['fstat','-T','headType','{}@={}'.format(depot_path,changelist)]
+    (content,_) = runCommand(command)
+    fileType = content.split('\n')[0].split(' ')[2]
     command = getP4Command() + ['print','-q','{}@={}'.format(depot_path,changelist)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
-    tmpfile.write(content)
+    if fileType == 'symlink':
+        tmpfile.write(content[:-1])
+    else:
+        tmpfile.write(content)
     tmpfile.close()
     command = ['diff','-u','/dev/null',tmp.name]
     (diff,_) = runCommand(command)
@@ -64,11 +72,19 @@ def generateAddedFileDiffFromShelved(changelist,depot_path):
     print '\n'.join(lines)
 
 def generateDeletedFileDiffFromShelved(changelist,depot_path,file_revision):
+    # p4 print adds an extra newline only for symlinks, so we have to check the
+    # file type and remove it in this case.
+    command = getP4Command() + ['fstat','-T','headType','{}#{}'.format(depot_path,file_revision)]
+    (content,_) = runCommand(command)
+    fileType = content.split('\n')[0].split(' ')[2]
     command = getP4Command() + ['print','-q','{}#{}'.format(depot_path,file_revision)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
-    tmpfile.write(content)
+    if fileType == 'symlink':
+        tmpfile.write(content[:-1])
+    else:
+        tmpfile.write(content)
     tmpfile.close()
     command = ['diff','-u',tmp.name,'/dev/null']
     (diff,_) = runCommand(command)

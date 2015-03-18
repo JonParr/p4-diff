@@ -50,11 +50,19 @@ def generateFileDiff(new,newfile):
     return diff
 
 def generateAddedFileDiffFromShelved(changelist,depot_path):
+    # p4 print adds an extra newline only for symlinks, so we have to check the
+    # file type and remove it in this case.
+    command = getP4Command() + ['fstat','-T','headType','{}@={}'.format(depot_path,changelist)]
+    (content,_) = runCommand(command)
+    fileType = content.split('\n')[0].split(' ')[2]
     command = getP4Command() + ['print','-q','{}@={}'.format(depot_path,changelist)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
-    tmpfile.write(content)
+    if fileType == 'symlink':
+        tmpfile.write(content[:-1])
+    else:
+        tmpfile.write(content)
     tmpfile.close()
     command = ['diff','-u','/dev/null',tmp.name]
     (diff,_) = runCommand(command)
@@ -64,11 +72,19 @@ def generateAddedFileDiffFromShelved(changelist,depot_path):
     print '\n'.join(lines)
 
 def generateDeletedFileDiffFromShelved(changelist,depot_path,file_revision):
+    # p4 print adds an extra newline only for symlinks, so we have to check the
+    # file type and remove it in this case.
+    command = getP4Command() + ['fstat','-T','headType','{}#{}'.format(depot_path,file_revision)]
+    (content,_) = runCommand(command)
+    fileType = content.split('\n')[0].split(' ')[2]
     command = getP4Command() + ['print','-q','{}#{}'.format(depot_path,file_revision)]
     (content,_) = runCommand(command)
     tmp = tempfile.NamedTemporaryFile()
     tmpfile = open(tmp.name,'w')
-    tmpfile.write(content)
+    if fileType == 'symlink':
+        tmpfile.write(content[:-1])
+    else:
+        tmpfile.write(content)
     tmpfile.close()
     command = ['diff','-u',tmp.name,'/dev/null']
     (diff,_) = runCommand(command)
@@ -123,12 +139,12 @@ def getShelvedFiles(changelist):
     for l in out.split('\n'):
         if not l.startswith('...'):
             continue
-        fields = l.split(' ')
-        file_name = fields[1].split('#')[0]
-        file_revision = fields[1].split('#')[1]
-        assert(fields[0] == '...')
-        operation = fields[2]
-        assert(operation in ['add','edit','delete'])
+        space_split = l.split(' ')
+        assert(space_split[0] == '...')
+        file_name = ' '.join((space_split[1:])[:-1]).split('#')[0]
+        file_revision = space_split[-2].split('#')[1]
+        operation = space_split[-1]
+        assert(operation in ['add','branch','move/delete','move/add','edit','delete','integrate'])
         shelved_files.append((operation,file_name,file_revision))
     return shelved_files
     
@@ -166,17 +182,17 @@ def main():
             local_f = convertDepotPathToLocal(f)
             if Verbose:
                 print '{} was open for {} [{}]'.format(local_f,op,f)
-            if op == 'add':
+            if op == 'add' or op == 'branch' or op == 'move/add':
                 if options.shelved:
                     generateAddedFileDiffFromShelved(changelist,f)
                 else:
                     generateFileDiff(True,local_f)
-            elif op == 'edit':
+            elif op == 'edit' or op == 'integrate':
                 if options.shelved:
                     generateEditFileDiffFromShelved(file_revision,changelist,f)
                 else:
                     generateEditFileDiff(f)
-            elif op == 'delete':
+            elif op == 'delete' or op == 'move/delete':
                 if options.shelved:
                     generateDeletedFileDiffFromShelved(changelist,f,file_revision)
                 else:
